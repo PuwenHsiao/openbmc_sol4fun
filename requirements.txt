@@ -3,3 +3,4 @@ flask
 playwright
 requests
 websockets
+lxml
