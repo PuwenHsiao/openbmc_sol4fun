@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title></title>
+    <meta http-equiv="content-type" content="text/html;charset=utf-8">
+    <style>
+        p {
+            text-align: left;
+            padding-left: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div style="width: 800px;height: 600px;margin: 30px auto;text-align: center">
+        <h1>websocket聊天室</h1>
+        <div id='ipp' ip={{ip}} port={{port}}></div>
+        <div style="width: 800px;border: 1px solid gray;height: 300px;">
+            <div style="width: 200px;height: 300px;float: left;text-align: left;">
+                <p><span>當前線上:</span><span id="user_num">0</span></p>
+                <div id="user_list" style="overflow: auto;">
+
+                </div>
+            </div>
+            <div id="msg_list"
+                style="width: 598px;border:  1px solid gray; height: 300px;overflow: scroll;float: left;">
+            </div>
+        </div>
+        <br>
+        <textarea id="msg_box" rows="6" cols="50" onkeydown="confirm(event)"></textarea><br>
+        <input type="button" value="傳送" onclick="send()">
+    </div>
+</body>
+
+</html>
+
+<script type="text/javascript">
+    // 儲存使用者名稱到全域變數,握手成功後傳送給伺服器
+    var uname = prompt('請輸入使用者名稱', 'user' + uuid(8, 16));
+    var url = "ws://" + document.getElementById("ipp").getAttribute("ip") + ':' + document.getElementById("ipp").getAttribute("port");
+    console.log(url);
+    var ws = new WebSocket(url);
+    ws.onopen = function () {
+        var data = "系統訊息：建立連線成功";
+        listMsg(data);
+    };
+
+    /**
+     * 分析伺服器返回資訊
+     *
+     * msg.type : user 普通訊息;system 系統資訊;handshake 握手資訊;login 登陸資訊; logout 退出資訊;
+     * msg.from : 訊息來源
+     * msg.content: 訊息內容
+     */
+    ws.onmessage = function (e) {
+        var msg = JSON.parse(e.data);
+        var sender, user_name, name_list, change_type;
+
+        switch (msg.type) {
+            case 'system':
+                sender = '系統訊息: ';
+                break;
+            case 'user':
+                sender = msg.from + ': ';
+                break;
+            case 'handshake':
+                var user_info = {
+                    'type': 'login',
+                    'content': uname
+                };
+                sendMsg(user_info);
+                return;
+            case 'login':
+            case 'logout':
+                user_name = msg.content;
+                name_list = msg.user_list;
+                change_type = msg.type;
+                dealUser(user_name, change_type, name_list);
+                return;
+        }
+
+        var data = sender + msg.content;
+        listMsg(data);
+    };
+
+    ws.onerror = function () {
+        var data = "系統訊息 : 出錯了,請退出重試.";
+        listMsg(data);
+    };
+
+    //視窗關閉時，發資訊給伺服器，說明下線了
+    window.onbeforeunload = function () {
+        var user_info = {
+            'type': 'logout',
+            'content': uname
+        };
+        sendMsg(user_info);
+        ws.close();
+    }
+
+    /**
+     * 在輸入框內按下Enter鍵時傳送訊息
+     *
+     * @param event
+     *
+     * @returns {boolean}
+     */
+    function confirm(event) {
+        var key_num = event.keyCode;
+        if (13 == key_num) {
+            send();
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * 傳送並清空訊息輸入框內的訊息
+     */
+    function send() {
+        var msg_box = document.getElementById("msg_box");
+        var content = msg_box.value;
+        var reg = new RegExp("\r\n", "g");
+        content = content.replace(reg, "");
+        var msg = {
+            'content': content.trim(),
+            'type': 'send'
+        };
+        sendMsg(msg);
+        msg_box.value = '';
+        // todo 清除分行符號
+    }
+
+    /**
+     * 將訊息內容新增到輸出框中,並將捲軸滾動到最下方
+     */
+    function listMsg(data) {
+        var msg_list = document.getElementById("msg_list");
+        var msg = document.createElement("p");
+
+        msg.innerHTML = data;
+        msg_list.appendChild(msg);
+        msg_list.scrollTop = msg_list.scrollHeight;
+    }
+
+    /**
+     * 處理使用者登陸訊息
+     *
+     * @param user_name 使用者名稱
+     * @param type  login/logout
+     * @param name_list 使用者列表
+     */
+    function dealUser(user_name, type, name_list) {
+        var user_list = document.getElementById("user_list");
+        var user_num = document.getElementById("user_num");
+        while (user_list.hasChildNodes()) {
+            user_list.removeChild(user_list.firstChild);
+        }
+
+        for (var index in name_list) {
+            var user = document.createElement("p");
+            user.innerHTML = name_list[index];
+            user_list.appendChild(user);
+        }
+        user_num.innerHTML = name_list.length;
+        user_list.scrollTop = user_list.scrollHeight;
+
+        var change = type == 'login' ? '上線' : '下線';
+
+        var data = '系統訊息: ' + user_name + ' 已' + change;
+        listMsg(data);
+    }
+
+    /**
+     * 將資料轉為json並行送
+     * @param msg
+     */
+    function sendMsg(msg) {
+        var data = JSON.stringify(msg);
+        ws.send(data);
+    }
+
+    /**
+     * 生產一個全域唯一ID作為使用者名稱的預設值;
+     *
+     * @param len
+     * @param radix
+     * @returns {string}
+     */
+    function uuid(len, radix) {
+        var chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'.split('');
+        var uuid = [],
+            i;
+        radix = radix || chars.length;
+
+        if (len) {
+            for (i = 0; i < len; i++) uuid[i] = chars[0 | Math.random() * radix];
+        } else {
+            var r;
+
+            uuid[8] = uuid[13] = uuid[18] = uuid[23] = '-';
+            uuid[14] = '4';
+
+            for (i = 0; i < 36; i++) {
+                if (!uuid[i]) {
+                    r = 0 | Math.random() * 16;
+                    uuid[i] = chars[(i == 19) ? (r & 0x3) | 0x8 : r];
+                }
+            }
+        }
+
+        return uuid.join('');
+    }
+</script>
